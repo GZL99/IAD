@@ -1,89 +1,104 @@
-globals [
-  city-locations  ;; list of city locations (xcor, ycor)
-  num-ants        ;; number of ants in the model
-]
-
 breed [ants ant]
-
 ants-own [
-  current-city  ;; the city the ant is currently in
-  path         ;; the path the ant has taken so far
+  current-city
+  path
 ]
 
-links-own [pheromone]
+globals [
+  city-locations
+  num-ants
+]
 
-to go
-  move-ants
-end
+patches-own [
+  pheromone
+]
 
 to setup
   clear-all
-  set num-ants 5  ;; Change this to the desired number of ants
+  set num-ants 5
   setup-cities
   setup-ants
   reset-ticks
 end
 
 to setup-cities
-  ;; Set up city locations randomly
   set city-locations []
-  let num-cities 10  ;; Change this to the desired number of cities
-
+  let num-cities 10
   repeat num-cities [
     let x random-xcor
     let y random-ycor
-    create-city x y
-    set city-locations lput (list x y) city-locations
-  ]
-end
-
-to create-city [x y]
-  create-turtles 1 [
-    setxy x y
-    set shape "circle"
-    set color red
-    pen-up
-  ]
-end
-
-to setup-ants
-  let initial-city one-of turtles  ;; Choose a random initial city
-  create-ants num-ants [
-    set color blue
-    set size 3
-    set current-city initial-city  ;; Set initial city for all ants
-    setxy [xcor] of initial-city [ycor] of initial-city
-    set path (list initial-city)
-  ]
-end
-
-to move-ants
-  ask ants [
-    let current-city-node current-city
-    let candidate-cities [neighbors] of current-city-node
-    let selected-city one-of candidate-cities with [not member? self [path] of myself]  ;; Ensure ant doesn't revisit same city
-
-    if selected-city != nobody [
-      set current-city selected-city
-      move-to selected-city
-      set path lput selected-city path
+    ask patch x y [
+      sprout 1 [
+        set shape "house"
+        set color red
+        set size 2
+      ]
+      set pheromone 0.01
     ]
   ]
 end
 
+to setup-ants
+  let initial-city one-of patches with [any? turtles-here]
+  create-ants num-ants [
+    move-to initial-city
+    set color blue
+    set size 1.5
+    set current-city initial-city
+    set path (list initial-city)
+  ]
+end
 
-to evaporate-pheromones
-  ;; Evaporate pheromones on all links
-  let evaporation-rate 0.01  ;; Adjust as needed
-  ask links [
-    set pheromone (pheromone * (1 - evaporation-rate))
+to go
+  ask ants [
+    move-ants
+    drop-pheromone
+  ]
+  evaporate-pheromone
+  tick
+end
+
+to move-ants
+  let visited-cities path  ; Store the current ant's path in a local variable for easy reference
+  let possible-cities patches with [any? turtles-here and not member? self visited-cities]
+
+  if not any? possible-cities and length path = count patches with [any? turtles-here] [
+    set path (list current-city)  ; Reset path to just the current city
+    set possible-cities patches with [any? turtles-here and not member? self visited-cities]  ; Update possible cities after path reset
+  ]
+
+  if any? possible-cities [
+    let new-city min-one-of possible-cities [distance myself]
+    face new-city
+
+    ;; Move step by step towards the new city
+    while [distance new-city > 1] [
+      fd 1
+      drop-pheromone
+    ]
+    move-to new-city  ; Ensures the ant is exactly on the city patch
+    set current-city new-city
+    set path lput new-city path
   ]
 end
 
 
+to drop-pheromone
+  ;; Increase pheromone level and change color on the current patch
+  ask patch-here [
+    set pheromone pheromone + 0.05
+    set pcolor scale-color green pheromone 0 5  ; Scale from green (low) to bright green (high)
+  ]
+end
 
 
-
+to evaporate-pheromone
+  ;; Evaporate pheromones on all patches gradually
+  ask patches [
+    set pheromone pheromone * 0.95
+    set pcolor scale-color green pheromone 0 5  ; Update color based on the new pheromone level
+  ]
+end
 
 
 @#$#@#$#@
