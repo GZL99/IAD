@@ -5,8 +5,14 @@ ants-own [
 ]
 
 globals [
-  city-locations
+  initial-city
   num-ants
+  num-cities
+  alpha
+  beta
+  rho
+  q0
+  tau0
 ]
 
 patches-own [
@@ -15,15 +21,28 @@ patches-own [
 
 to setup
   clear-all
+
+  ;global variables
+  set alpha 0.1
+  set beta 2
+  set rho 0.1
+  set q0 0.9
+  set num-cities 10
   set num-ants 5
+  setup-tau0
+
+  ;set up cities
   setup-cities
+
   setup-ants
   reset-ticks
 end
 
+to setup-tau0
+  set tau0 (1 / num-cities) ;TODO: should be 1/(num-cities * Lnn)
+end
+
 to setup-cities
-  set city-locations []
-  let num-cities 10
   repeat num-cities [
     let x random-xcor
     let y random-ycor
@@ -36,10 +55,12 @@ to setup-cities
       set pheromone 0.01
     ]
   ]
+  ;the initial city is green
+  set initial-city one-of patches with [any? turtles-here]
+  ask turtles-on initial-city [set color green]
 end
 
 to setup-ants
-  let initial-city one-of patches with [any? turtles-here]
   create-ants num-ants [
     move-to initial-city
     set color blue
@@ -50,66 +71,110 @@ to setup-ants
 end
 
 to go
+  reset-ants
+  let shortest-length 1000000000
+  let best-path []
   ask ants [
-    move-ants
-    drop-pheromone
+    let path-length move-ants
+    if path-length < shortest-length [
+      set best-path path
+      set shortest-length path-length
+    ]
   ]
-  evaporate-pheromone
+
+  ; asking a random ant to update the pheromones on the best path
+  ; according to the global updating rule
+  ask ant (num-cities + 1) [
+    global-updating-rule best-path shortest-length
+  ]
   tick
 end
 
-to move-ants
-  let visited-cities path  ; Store the current ant's path in a local variable for easy reference
-  let possible-cities patches with [any? turtles-here and not member? self visited-cities]
+to-report move-ants ; ants visit all cities
+  let total-distance 0 ; distance of the path
+  while [length path != num-cities] [
+    let visited-cities path  ; Store the current ant's path in a local variable for easy reference
+    let possible-cities patches with [any? turtles-here and not member? self visited-cities]
 
-  if not any? possible-cities and length path = count patches with [any? turtles-here] [
-    set path (list current-city)  ; Reset path to just the current city
-    set possible-cities patches with [any? turtles-here and not member? self visited-cities]  ; Update possible cities after path reset
-  ]
+    if any? possible-cities [ ; always the case
+      let new-city choose-next-city possible-cities
+      set total-distance total-distance + distance new-city
 
-  if any? possible-cities [
-    let new-city min-one-of possible-cities [distance myself]
-    face new-city
-
-    ;; Move step by step towards the new city
-    while [distance new-city > 1] [
-      fd 1
-      drop-pheromone
+      face new-city
+      ; Move step by step towards the new city
+      while [distance new-city > 1] [
+        fd 1
+        drop-pheromone (1 - rho) * ([pheromone] of patch-here) + rho * tau0 ; local updating rule with delta tau(r,s) = 0
+      ]
+      move-to new-city  ; Ensures the ant is exactly on the city patch
+      set current-city new-city
+      set path lput new-city path
     ]
-    move-to new-city  ; Ensures the ant is exactly on the city patch
-    set current-city new-city
-    set path lput new-city path
   ]
+  report total-distance
+end
+
+to-report choose-next-city [#possible-cities]
+  report min-one-of #possible-cities [distance myself] ;TODO state transition rule
 end
 
 
-to drop-pheromone
+to drop-pheromone [#pheromone-value]
   ;; Increase pheromone level and change color on the current patch
+  show #pheromone-value
   ask patch-here [
-    set pheromone pheromone + 0.05
-    set pcolor scale-color green pheromone 0 5  ; Scale from green (low) to bright green (high)
+    set pheromone #pheromone-value
+    set pcolor scale-color green pheromone 0 0.1  ; Scale from green (low) to bright green (high)
   ]
 end
 
+to global-updating-rule [#path #path-length]
+  set path (list initial-city)  ; Reset path to just the initial city
+  foreach #path [
+    [city] ->
+    ifelse (city = initial-city) [move-to city]
+    [
+      set current-city patch-here
+      foreach filter [v -> not member? v path] #path [
+        [c] ->
+        face c
+        ; Move step by step towards the new city
+        while [distance c > 1] [
+          fd 1
+          drop-pheromone ((1 - alpha) * ([pheromone] of patch-here)) ; global updating rule
+        ]
+      move-to current-city
+      ]
 
-to evaporate-pheromone
-  ;; Evaporate pheromones on all patches gradually
-  ask patches [
-    set pheromone pheromone * 0.95
-    set pcolor scale-color green pheromone 0 5  ; Update color based on the new pheromone level
+      face city
+      ; Move step by step towards the new city
+      while [distance city > 1] [
+        fd 1
+        drop-pheromone ((1 - alpha) * ([pheromone] of patch-here) + (alpha * (1 / #path-length))) ; global updating rule
+      ]
+      set path lput city path
+      move-to city
+    ]
   ]
 end
 
+to reset-ants
+  ask ants [
+    move-to initial-city
+    set path (list initial-city)  ; Reset path to just the initial city
+    set current-city initial-city
+  ]
+end
 
 @#$#@#$#@
 GRAPHICS-WINDOW
 210
-10
-647
-448
+12
+700
+503
 -1
 -1
-13.0
+14.61
 1
 10
 1
@@ -153,7 +218,7 @@ BUTTON
 238
 start
 go
-T
+NIL
 1
 T
 OBSERVER
